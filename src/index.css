@@ -1,0 +1,1118 @@
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+
+const STORAGE_KEY = 'venda-facil-ai-opportunities-v1';
+
+const stageOptions = [
+  { value: 'novo-contato', label: 'Novo contato' },
+  { value: 'em-negociacao', label: 'Em negociação' },
+  { value: 'aguardando-resposta', label: 'Aguardando resposta' },
+  { value: 'venda-concluida', label: 'Venda concluída' },
+  { value: 'perdida', label: 'Perdida' }
+];
+
+const channelOptions = ['WhatsApp', 'Instagram', 'Telefone', 'Site', 'Indicação'];
+
+const objectiveOptions = {
+  'primeiro-contato': 'Primeiro contato',
+  acompanhamento: 'Acompanhamento',
+  'resposta-duvidas': 'Resposta a dúvidas',
+  'retomada-negociacao': 'Retomada de negociação'
+};
+
+const defaultOpportunities = [
+  {
+    id: 'OP-101',
+    clientName: 'Maria Souza',
+    product: 'Cadeira ergonômica para escritório',
+    value: 1850,
+    channel: 'Instagram',
+    lastContact: '2026-10-18',
+    stage: 'aguardando-resposta',
+    notes: 'Cliente demonstrou interesse após anúncio e solicitou orçamento detalhado.',
+    lossReason: '',
+    createdAt: '2026-10-10'
+  },
+  {
+    id: 'OP-102',
+    clientName: 'João Almeida',
+    product: 'Kit de café para pequenas empresas',
+    value: 540,
+    channel: 'WhatsApp',
+    lastContact: '2026-10-20',
+    stage: 'em-negociacao',
+    notes: 'Interessado em iniciar compra em duas parcelas e pediu análise de frete.',
+    lossReason: '',
+    createdAt: '2026-10-12'
+  },
+  {
+    id: 'OP-103',
+    clientName: 'Lúcia Vieira',
+    product: 'Manutenção preventiva de caixa registradora',
+    value: 1200,
+    channel: 'Telefone',
+    lastContact: '2026-10-10',
+    stage: 'novo-contato',
+    notes: 'Primeiro contato realizado e cliente pediu envio de proposta.',
+    lossReason: '',
+    createdAt: '2026-10-15'
+  },
+  {
+    id: 'OP-104',
+    clientName: 'Pedro Santos',
+    product: 'Sistema de gestão de estoque',
+    value: 2800,
+    channel: 'Site',
+    lastContact: '2026-10-17',
+    stage: 'venda-concluida',
+    notes: 'Proposta aceita e pagamento confirmado para início da implantação.',
+    lossReason: '',
+    createdAt: '2026-09-28'
+  },
+  {
+    id: 'OP-105',
+    clientName: 'Ana Pires',
+    product: 'Máquina de café para atendimento rápido',
+    value: 740,
+    channel: 'WhatsApp',
+    lastContact: '2026-10-12',
+    stage: 'perdida',
+    notes: 'Negociação atrasada por orçamento elevado comparado ao mercado local.',
+    lossReason: 'Preço acima do orçamento',
+    createdAt: '2026-10-04'
+  },
+  {
+    id: 'OP-106',
+    clientName: 'Henrique Silva',
+    product: 'Kit promocional com adesivos e canecas',
+    value: 390,
+    channel: 'Indicação',
+    lastContact: '2026-10-15',
+    stage: 'aguardando-resposta',
+    notes: 'Cliente pediu orçamento e demonstrou interesse em várias unidades.',
+    lossReason: '',
+    createdAt: '2026-10-09'
+  },
+  {
+    id: 'OP-107',
+    clientName: 'Bianca Costa',
+    product: 'Consultoria para reorganização de ponto de venda',
+    value: 950,
+    channel: 'Telefone',
+    lastContact: '2026-10-19',
+    stage: 'em-negociacao',
+    notes: 'Cliente avaliou duas opções e está comparando serviços com concorrentes.',
+    lossReason: '',
+    createdAt: '2026-10-11'
+  }
+];
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
+  );
+}
+
+function AppRoutes() {
+  const location = useLocation();
+  const isLandingPage = location.pathname === '/';
+
+  const [opportunities, setOpportunities] = useState(() => {
+    if (typeof window === 'undefined') {
+      return defaultOpportunities;
+    }
+
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : defaultOpportunities;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(opportunities));
+    }
+  }, [opportunities]);
+
+  const dashboardStats = useMemo(() => buildDashboardStats(opportunities), [opportunities]);
+
+  if (isLandingPage) {
+    return <LandingPage />;
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand-box">
+          <div className="brand-icon">V</div>
+          <div>
+            <strong>VendaFácil AI</strong>
+            <span>Demonstrativo</span>
+          </div>
+        </div>
+
+        <nav className="nav-list">
+          <NavLink to="/dashboard" className="nav-item">
+            Dashboard
+          </NavLink>
+          <NavLink to="/oportunidades" className="nav-item">
+            Oportunidades
+          </NavLink>
+          <NavLink to="/prioridades" className="nav-item">
+            Prioridades com IA
+          </NavLink>
+          <NavLink to="/assistente" className="nav-item">
+            Assistente de mensagens
+          </NavLink>
+          <NavLink to="/relatorio" className="nav-item">
+            Relatório semanal
+          </NavLink>
+        </nav>
+
+        <div className="sidebar-card">
+          <small>Integrações futuras</small>
+          <p>Supabase e autenticação de múltiplas contas ainda serão ativadas em versão de produção.</p>
+        </div>
+      </aside>
+
+      <div className="page-panel">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Painel do comerciante</p>
+            <h1>Central de vendas</h1>
+          </div>
+          <div className="topbar-actions">
+            <span className="demo-pill">Dados de demonstração</span>
+            <Link to="/" className="button button-ghost">
+              Ver apresentação
+            </Link>
+          </div>
+        </header>
+
+        <div className="mobile-nav">
+          <NavLink to="/dashboard">Dashboard</NavLink>
+          <NavLink to="/oportunidades">Oportunidades</NavLink>
+          <NavLink to="/prioridades">Prioridades</NavLink>
+          <NavLink to="/assistente">Mensagens</NavLink>
+        </div>
+
+        <main className="content-area">
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage opportunities={opportunities} stats={dashboardStats} />} />
+            <Route path="/oportunidades" element={<OportunidadesPage opportunities={opportunities} setOpportunities={setOpportunities} />} />
+            <Route path="/prioridades" element={<PrioridadesPage opportunities={opportunities} />} />
+            <Route path="/assistente" element={<AssistentePage opportunities={opportunities} />} />
+            <Route path="/relatorio" element={<RelatorioPage opportunities={opportunities} />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function LandingPage() {
+  const features = [
+    {
+      title: 'Controle centralizado',
+      text: 'Acompanhe clientes, valores e etapas em uma visão simples para cada oportunidade.'
+    },
+    {
+      title: 'Priorização guiada',
+      text: 'Veja quais clientes precisam de atenção imediata com regras claras e explicáveis.'
+    },
+    {
+      title: 'Mensagens mais rápidas',
+      text: 'Gere textos em português para diferentes objetivos de conversa sem perder o contexto.'
+    },
+    {
+      title: 'Relatórios para decisão',
+      text: 'Entenda o que está convertendo e onde pode melhorar a sequência de vendas.'
+    }
+  ];
+
+  return (
+    <div className="landing-page">
+      <header className="landing-header">
+        <div className="logo-wrap">
+          <div className="brand-icon large">V</div>
+          <span>VendaFácil AI</span>
+        </div>
+        <Link to="/dashboard" className="button button-primary">
+          Experimentar demonstração
+        </Link>
+      </header>
+
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="eyebrow inverse">Tecnologia para impulsionar vendas</span>
+          <h2>Organize oportunidades, priorize atendimentos e aumente as conversões.</h2>
+          <p>
+            A VendaFácil AI ajuda pequenos comerciantes a acompanhar clientes interessados, responder
+            rapidamente e tomar decisões mais simples com base em dados reais.
+          </p>
+          <div className="hero-actions">
+            <Link to="/dashboard" className="button button-primary big">
+              Explorar demonstração
+            </Link>
+            <a href="#interesse" className="button button-ghost big light">
+              Falar com a equipe
+            </a>
+          </div>
+          <ul className="hero-benefits">
+            <li>Sem necessidade de WhatsApp na primeira versão</li>
+            <li>Base pronta para Supabase no futuro</li>
+            <li>Design responsivo para celular e desktop</li>
+          </ul>
+        </div>
+
+        <div className="hero-card">
+          <div className="mini-card">
+            <span>Total de oportunidades</span>
+            <strong>182</strong>
+            <small>+18% em relação ao mês passado</small>
+          </div>
+          <div className="mini-chart">
+            <div className="bar" style={{ height: '35%' }} />
+            <div className="bar" style={{ height: '54%' }} />
+            <div className="bar" style={{ height: '68%' }} />
+            <div className="bar" style={{ height: '72%' }} />
+            <div className="bar" style={{ height: '60%' }} />
+            <div className="bar" style={{ height: '78%' }} />
+            <div className="bar" style={{ height: '86%' }} />
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="section-heading">
+          <span className="eyebrow">Problema</span>
+          <h3>Os pequenos negócios perdem clientes por falta de organização.</h3>
+        </div>
+        <div className="info-grid two-columns">
+          <div className="info-panel">
+            <h4>O que acontece no dia a dia</h4>
+            <p>
+              Mensagens são perdidas, clientes esperam sem resposta, e o dono precisa lembrar manualmente
+              cada oportunidade. Isso reduz o tempo de resposta e diminui as chances de fechar vendas.
+            </p>
+          </div>
+          <div className="info-panel benefit-panel">
+            <h4>Benefícios do produto</h4>
+            <ul>
+              <li>Maior controle das oportunidades em um único lugar</li>
+              <li>Resposta mais rápida e organizada</li>
+              <li>Priorização por urgência e valor</li>
+              <li>Relatórios para ver o que está funcionando</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="section-heading">
+          <span className="eyebrow">Funcionalidades</span>
+          <h3>Quatro recursos centrais para fechar mais negócios</h3>
+        </div>
+        <div className="feature-grid">
+          {features.map((feature) => (
+            <div key={feature.title} className="feature-card">
+              <div className="feature-bullet" />
+              <h4>{feature.title}</h4>
+              <p>{feature.text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section id="interesse" className="section interest-section">
+        <div className="section-heading">
+          <span className="eyebrow">Interessado em testar?</span>
+          <h3>Solicite uma demonstração do produto</h3>
+        </div>
+        <div className="interest-card">
+          <div>
+            <p>Comercial</p>
+            <strong>Receber apresentação da solução</strong>
+          </div>
+          <a href="mailto:contato@vendafacil.ai" className="button button-primary">
+            contato@vendafacil.ai
+          </a>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DashboardPage({ opportunities, stats }) {
+  const prioritized = buildPriorityList(opportunities).slice(0, 4);
+  const weeklyChart = buildWeeklyChart(opportunities);
+
+  return (
+    <>
+      <div className="cards-grid">
+        <StatCard label="Total de oportunidades" value={stats.total} detail="Todos os leads ativos" accent="blue" />
+        <StatCard label="Clientes para retorno" value={stats.needingReturn} detail="Sem resposta recente" accent="amber" />
+        <StatCard label="Vendas confirmadas" value={stats.confirmedSales} detail="Fase de fechamento" accent="green" />
+        <StatCard label="Taxa de conversão" value={`${stats.conversion.toFixed(1)}%`} detail="Base em vendas e perdas" accent="purple" />
+      </div>
+
+      <div className="panel-grid">
+        <section className="panel">
+          <div className="panel-header">
+            <h3>Clientes prioritários</h3>
+            <Link to="/prioridades" className="text-link">
+              Ver todos
+            </Link>
+          </div>
+
+          <div className="priority-list">
+            {prioritized.length ? (
+              prioritized.map((item) => (
+                <div key={item.opportunity.id} className="priority-item">
+                  <div>
+                    <strong>{item.opportunity.clientName}</strong>
+                    <span>{item.label} • {formatCurrency(item.opportunity.value)}</span>
+                  </div>
+                  <small>{item.reason}</small>
+                </div>
+              ))
+            ) : (
+              <p className="empty-state">Ainda não há dados para priorização.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-header">
+            <h3>Desempenho semanal</h3>
+            <span className="mini-badge">Demonstração</span>
+          </div>
+
+          <div className="chart-box">
+            {weeklyChart.map((item) => (
+              <div key={item.day} className="chart-column">
+                <span className="chart-bar" style={{ height: `${Math.max(item.value * 18, 10)}px` }} />
+                <small>{item.day}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="cta-row">
+        <Link to="/oportunidades" className="button button-primary big">
+          Cadastrar oportunidade
+        </Link>
+      </div>
+    </>
+  );
+}
+
+function OportunidadesPage({ opportunities, setOpportunities }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [stageFilter, setStageFilter] = useState('todas');
+  const [channelFilter, setChannelFilter] = useState('todos');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState(createEmptyOpportunity());
+
+  const filteredOpportunities = useMemo(() => {
+    return opportunities.filter((item) => {
+      const matchesSearch =
+        !searchTerm ||
+        item.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.product.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesStage = stageFilter === 'todas' || item.stage === stageFilter;
+      const matchesChannel = channelFilter === 'todos' || item.channel === channelFilter;
+
+      return matchesSearch && matchesStage && matchesChannel;
+    });
+  }, [opportunities, searchTerm, stageFilter, channelFilter]);
+
+  function openCreateForm() {
+    setDraft(createEmptyOpportunity());
+    setEditingId(null);
+    setIsFormOpen(true);
+  }
+
+  function openEditForm(opportunity) {
+    setDraft({
+      ...opportunity,
+      value: Number(opportunity.value)
+    });
+    setEditingId(opportunity.id);
+    setIsFormOpen(true);
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+
+    const payload = {
+      ...draft,
+      id: editingId || `OP-${String(Date.now()).slice(-4)}`,
+      value: Number(draft.value || 0),
+      stage: draft.stage || 'novo-contato',
+      channel: draft.channel || 'WhatsApp',
+      lossReason: draft.stage === 'perdida' ? draft.lossReason : '',
+      notes: draft.notes || ''
+    };
+
+    if (editingId) {
+      setOpportunities((previous) => previous.map((item) => (item.id === editingId ? payload : item)));
+    } else {
+      setOpportunities((previous) => [{ ...payload, createdAt: new Date().toISOString().slice(0, 10) }, ...previous]);
+    }
+
+    setIsFormOpen(false);
+    setEditingId(null);
+    setDraft(createEmptyOpportunity());
+  }
+
+  function removeOpportunity(id) {
+    setOpportunities((previous) => previous.filter((item) => item.id !== id));
+  }
+
+  return (
+    <>
+      <div className="toolbar">
+        <div className="search-box">
+          <input
+            aria-label="Buscar cliente"
+            placeholder="Buscar cliente ou produto"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+        </div>
+
+        <label>
+          Etapa
+          <select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
+            <option value="todas">Todas</option>
+            {stageOptions.map((stage) => (
+              <option key={stage.value} value={stage.value}>
+                {stage.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Canal
+          <select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+            <option value="todos">Todos</option>
+            {channelOptions.map((channel) => (
+              <option key={channel} value={channel}>
+                {channel}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button type="button" className="button button-primary" onClick={openCreateForm}>
+          + Cadastrar oportunidade
+        </button>
+      </div>
+
+      {isFormOpen && (
+        <div className="modal-overlay" onClick={() => setIsFormOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{editingId ? 'Editar oportunidade' : 'Nova oportunidade'}</h3>
+              <button type="button" className="close-button" onClick={() => setIsFormOpen(false)}>
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="opportunity-form">
+              <div className="field-grid">
+                <label>
+                  Cliente
+                  <input
+                    required
+                    value={draft.clientName}
+                    onChange={(event) => setDraft({ ...draft, clientName: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Produto ou serviço
+                  <input
+                    required
+                    value={draft.product}
+                    onChange={(event) => setDraft({ ...draft, product: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Valor estimado
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={draft.value}
+                    onChange={(event) => setDraft({ ...draft, value: Number(event.target.value || 0) })}
+                  />
+                </label>
+                <label>
+                  Canal de contato
+                  <select
+                    value={draft.channel}
+                    onChange={(event) => setDraft({ ...draft, channel: event.target.value })}
+                  >
+                    {channelOptions.map((channel) => (
+                      <option key={channel} value={channel}>
+                        {channel}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Último atendimento
+                  <input
+                    type="date"
+                    value={draft.lastContact}
+                    onChange={(event) => setDraft({ ...draft, lastContact: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Etapa da venda
+                  <select
+                    value={draft.stage}
+                    onChange={(event) => setDraft({ ...draft, stage: event.target.value })}
+                  >
+                    {stageOptions.map((stage) => (
+                      <option key={stage.value} value={stage.value}>
+                        {stage.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                Observações
+                <textarea
+                  rows="3"
+                  value={draft.notes}
+                  onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
+                />
+              </label>
+
+              {draft.stage === 'perdida' && (
+                <label>
+                  Motivo da perda
+                  <input
+                    value={draft.lossReason}
+                    onChange={(event) => setDraft({ ...draft, lossReason: event.target.value })}
+                  />
+                </label>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="button button-ghost" onClick={() => setIsFormOpen(false)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="button button-primary">
+                  {editingId ? 'Salvar alterações' : 'Cadastrar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <section className="panel table-panel">
+        <div className="panel-header">
+          <h3>Lista de oportunidades</h3>
+          <span>{filteredOpportunities.length} registros</span>
+        </div>
+
+        <div className="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Produto</th>
+                <th>Valor</th>
+                <th>Canal</th>
+                <th>Último contato</th>
+                <th>Etapa</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOpportunities.length ? (
+                filteredOpportunities.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.clientName}</td>
+                    <td>{item.product}</td>
+                    <td>{formatCurrency(item.value)}</td>
+                    <td>{item.channel}</td>
+                    <td>{formatDate(item.lastContact)}</td>
+                    <td>
+                      <span className={`status-tag ${item.stage}`}>
+                        {stageLabel(item.stage)}
+                      </span>
+                    </td>
+                    <td className="action-buttons">
+                      <button type="button" className="link-button" onClick={() => openEditForm(item)}>
+                        Editar
+                      </button>
+                      <button type="button" className="link-button danger" onClick={() => removeOpportunity(item.id)}>
+                        Excluir
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="7" className="empty-state">
+                    Nenhuma oportunidade encontrada para os filtros selecionados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function PrioridadesPage({ opportunities }) {
+  const priorities = buildPriorityList(opportunities);
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <h3>Prioridades com IA</h3>
+        <span className="mini-badge">Regras transparentes de priorização</span>
+      </div>
+
+      <div className="priority-grid">
+        {priorities.length ? (
+          priorities.map(({ opportunity, label, score, reason }) => (
+            <div key={opportunity.id} className={`priority-card ${label.toLowerCase()}`}>
+              <div className="priority-topline">
+                <strong>{opportunity.clientName}</strong>
+                <span className={`status-tag ${opportunity.stage}`}>{label}</span>
+              </div>
+              <p>{opportunity.product}</p>
+              <small>Score de urgência: {score}</small>
+              <div className="priority-reason">{reason}</div>
+            </div>
+          ))
+        ) : (
+          <p className="empty-state">Sem oportunidades para priorizar.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AssistentePage({ opportunities }) {
+  const [selectedId, setSelectedId] = useState(opportunities[0]?.id || '');
+  const [objective, setObjective] = useState('acompanhamento');
+  const [context, setContext] = useState('Cliente demonstrou interesse, mas ainda não confirmou envio do pedido.');
+  const [seed, setSeed] = useState(0);
+
+  const selectedOpportunity = opportunities.find((item) => item.id === selectedId) || opportunities[0];
+
+  useEffect(() => {
+    if (!selectedOpportunity && opportunities.length) {
+      setSelectedId(opportunities[0].id);
+    }
+  }, [selectedOpportunity, opportunities]);
+
+  const message = useMemo(() => {
+    if (!selectedOpportunity) {
+      return 'Cadastre uma oportunidade para gerar uma mensagem de exemplo.';
+    }
+
+    return generateMessage(selectedOpportunity, objective, context, seed);
+  }, [selectedOpportunity, objective, context, seed]);
+
+  async function copyMessage() {
+    if (!navigator?.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(message);
+  }
+
+  return (
+    <section className="panel assist-panel">
+      <div className="panel-header">
+        <h3>Assistente de mensagens</h3>
+        <span className="mini-badge">Modelo de demonstração</span>
+      </div>
+
+      <div className="assist-layout">
+        <div className="assist-form">
+          <label>
+            Oportunidade
+            <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+              {opportunities.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.clientName} • {item.product}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Objetivo da mensagem
+            <select value={objective} onChange={(event) => setObjective(event.target.value)}>
+              {Object.entries(objectiveOptions).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Contexto do atendimento
+            <textarea
+              rows="6"
+              value={context}
+              onChange={(event) => setContext(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="message-box">
+          <p className="message-label">Mensagem sugerida</p>
+          <div className="message-output">{message}</div>
+
+          <div className="message-actions">
+            <button type="button" className="button button-primary" onClick={() => setSeed((value) => value + 1)}>
+              Gerar novamente
+            </button>
+            <button type="button" className="button button-ghost" onClick={copyMessage}>
+              Copiar mensagem
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RelatorioPage({ opportunities }) {
+  const report = buildWeeklyReport(opportunities);
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <h3>Relatório semanal</h3>
+        <span className="mini-badge">Indicadores calculados a partir dos registros</span>
+      </div>
+
+      <div className="cards-grid compact-grid">
+        <StatCard label="Oportunidades cadastradas" value={report.current.total} detail={`Semana atual: ${report.current.periodLabel}`} accent="blue" />
+        <StatCard label="Oportunidades atendidas" value={report.current.attended} detail="Com atendimento registrado" accent="amber" />
+        <StatCard label="Vendas concluídas" value={report.current.sales} detail="Fechamentos nesta semana" accent="green" />
+        <StatCard label="Vendas perdidas" value={report.current.lost} detail="Perdas registradas" accent="red" />
+      </div>
+
+      <div className="report-grid">
+        <div className="info-panel">
+          <h4>Motivos das perdas</h4>
+          {report.current.lossReasons.length ? (
+            <ul className="reason-list">
+              {report.current.lossReasons.map(([reason, count]) => (
+                <li key={reason}>
+                  <span>{reason}</span>
+                  <strong>{count}</strong>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-state">Nenhuma perda registrada nesta semana.</p>
+          )}
+        </div>
+
+        <div className="info-panel">
+          <h4>Comparação com o período anterior</h4>
+          {report.previous ? (
+            <div className="comparison-table">
+              <div>
+                <span>Oportunidades</span>
+                <strong>{getVarianceLabel(report.current.total, report.previous.total)}</strong>
+              </div>
+              <div>
+                <span>Vendas</span>
+                <strong>{getVarianceLabel(report.current.sales, report.previous.sales)}</strong>
+              </div>
+              <div>
+                <span>Conversão</span>
+                <strong>{getVarianceLabel(report.current.conversion, report.previous.conversion, '%')}</strong>
+              </div>
+            </div>
+          ) : (
+            <p className="empty-state">Dados insuficientes para comparação com o período anterior.</p>
+          )}
+
+          <div className="conversion-box">
+            <span>Taxa de conversão</span>
+            <strong>{report.current.conversion.toFixed(1)}%</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatCard({ label, value, detail, accent }) {
+  return (
+    <div className={`stat-card ${accent}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function createEmptyOpportunity() {
+  return {
+    clientName: '',
+    product: '',
+    value: 0,
+    channel: 'WhatsApp',
+    lastContact: new Date().toISOString().slice(0, 10),
+    stage: 'novo-contato',
+    notes: '',
+    lossReason: ''
+  };
+}
+
+function buildDashboardStats(opportunities) {
+  const total = opportunities.length;
+  const needingReturn = opportunities.filter((item) => {
+    const days = daysBetween(new Date(item.lastContact), new Date());
+    return item.stage === 'aguardando-resposta' || days >= 7;
+  }).length;
+
+  const confirmedSales = opportunities.filter((item) => item.stage === 'venda-concluida').length;
+  const salesOrLosses = opportunities.filter((item) => item.stage === 'venda-concluida' || item.stage === 'perdida').length;
+  const conversion = salesOrLosses === 0 ? 0 : (confirmedSales / salesOrLosses) * 100;
+
+  return {
+    total,
+    needingReturn,
+    confirmedSales,
+    conversion
+  };
+}
+
+function buildPriorityList(opportunities) {
+  return opportunities
+    .map((opportunity) => {
+      const daysWithoutReply = daysBetween(new Date(opportunity.lastContact), new Date());
+      let score = 30;
+
+      if (opportunity.stage === 'aguardando-resposta') score += 32;
+      if (opportunity.stage === 'em-negociacao') score += 18;
+      if (opportunity.stage === 'novo-contato') score += 8;
+      if (opportunity.stage === 'perdida') score -= 40;
+      if (opportunity.stage === 'venda-concluida') score -= 60;
+
+      if (opportunity.value >= 2500) score += 12;
+      if (daysWithoutReply >= 7) score += 16;
+      if (opportunity.notes.toLowerCase().includes('solicitou') || opportunity.notes.toLowerCase().includes('interessado')) {
+        score += 12;
+      }
+
+      if (score >= 70) {
+        return {
+          opportunity,
+          score: Math.max(score, 0),
+          label: 'Alta',
+          reason: buildPriorityReason(opportunity, 'Alta')
+        };
+      }
+
+      if (score >= 40) {
+        return {
+          opportunity,
+          score: Math.max(score, 0),
+          label: 'Média',
+          reason: buildPriorityReason(opportunity, 'Média')
+        };
+      }
+
+      return {
+        opportunity,
+        score: Math.max(score, 0),
+        label: 'Baixa',
+        reason: buildPriorityReason(opportunity, 'Baixa')
+      };
+    })
+    .sort((first, second) => second.score - first.score);
+}
+
+function buildPriorityReason(opportunity, label) {
+  const valueText = opportunity.value >= 2000 ? 'valor relevante' : 'valor moderado';
+
+  if (opportunity.stage === 'aguardando-resposta') {
+    return `${label} prioridade: cliente solicitou informações sobre o produto e ainda aguarda retorno, com ${valueText}.`;
+  }
+
+  if (opportunity.stage === 'em-negociacao') {
+    return `${label} prioridade: negociação ativa com interesse em andamento e bom potencial de conversão.`;
+  }
+
+  if (opportunity.stage === 'perdida') {
+    return `${label} prioridade: oportunidade encerrada e sem continuidade de prospecção neste momento.`;
+  }
+
+  return `${label} prioridade: contato recente com valor compatível e necessidade de acompanhamento para manter o interesse.`;
+}
+
+function buildWeeklyChart(opportunities) {
+  const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+  return days.map((day, index) => {
+    const count = opportunities.filter((opportunity) => {
+      const created = new Date(opportunity.createdAt);
+      const base = new Date();
+      const currentWeekStart = new Date(base);
+      currentWeekStart.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+      currentWeekStart.setHours(0, 0, 0, 0);
+
+      const dayDate = new Date(currentWeekStart);
+      dayDate.setDate(currentWeekStart.getDate() + index);
+
+      return created.toDateString() === dayDate.toDateString();
+    }).length;
+
+    return { day, value: count };
+  });
+}
+
+function buildWeeklyReport(opportunities) {
+  const currentStart = getStartOfCurrentWeek();
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(currentStart.getDate() - 7);
+
+  const current = summarizePeriod(opportunities, currentStart, new Date(currentStart.getTime() + 6 * 24 * 60 * 60 * 1000));
+  const previous = summarizePeriod(opportunities, previousStart, new Date(previousStart.getTime() + 6 * 24 * 60 * 60 * 1000));
+
+  return { current, previous };
+}
+
+function summarizePeriod(opportunities, start, end) {
+  const range = opportunities.filter((item) => {
+    const created = new Date(item.createdAt);
+    return created >= start && created <= end;
+  });
+
+  const attended = range.filter((item) => item.stage !== 'novo-contato' && item.stage !== 'perdida').length;
+  const sales = range.filter((item) => item.stage === 'venda-concluida').length;
+  const lost = range.filter((item) => item.stage === 'perdida').length;
+  const conversion = range.length === 0 ? 0 : sales / Math.max(range.length, 1) * 100;
+
+  const lossReasons = Object.entries(
+    range.reduce((accumulator, item) => {
+      if (item.stage === 'perdida' && item.lossReason) {
+        accumulator[item.lossReason] = (accumulator[item.lossReason] || 0) + 1;
+      }
+      return accumulator;
+    }, {})
+  ).sort((first, second) => second[1] - first[1]);
+
+  return {
+    total: range.length,
+    attended,
+    sales,
+    lost,
+    conversion,
+    lossReasons,
+    periodLabel: `${formatDateShort(start)} - ${formatDateShort(end)}`
+  };
+}
+
+function generateMessage(opportunity, objective, context, variant) {
+  const base = [
+    `Olá ${opportunity.clientName}, tudo bem?`,
+    `Oi ${opportunity.clientName}, espero que esteja bem.`,
+    `Bom dia ${opportunity.clientName}, agradeço pelo interesse em ${opportunity.product}.`
+  ];
+
+  const templates = {
+    'primeiro-contato': [
+      `${base[variant % base.length]} Sou da loja e gostaria de apresentar ${opportunity.product}. Posso te ajudar a entender melhor o que funciona para o seu negócio e ajustar a solução ideal para você.`,
+      `${base[(variant + 1) % base.length]} Vi seu interesse em ${opportunity.product} e quero entender suas necessidades para te recomendar a melhor opção com o melhor custo-benefício.`,
+      `${base[(variant + 2) % base.length]} Gostaria de conversar rapidamente sobre ${opportunity.product} e ver qual solução atende melhor ao seu perfil e ao seu atendimento.`
+    ],
+    acompanhamento: [
+      `${base[variant % base.length]} Vi que você demonstrou interesse em ${opportunity.product}. Gostaria de saber se ainda precisa de ajuda para decidir e, se quiser, posso te enviar um resumo com as opções mais adequadas.`,
+      `${base[(variant + 1) % base.length]} Agradeço o interesse em ${opportunity.product}. Estou aqui para seguir com o atendimento e tirar qualquer dúvida antes da decisão final.`,
+      `${base[(variant + 2) % base.length]} Gostaria de dar continuidade ao contato sobre ${opportunity.product}. Posso enviar mais detalhes ou ajustar a proposta conforme a sua necessidade.`
+    ],
+    'resposta-duvidas': [
+      `${base[variant % base.length]} Sobre ${opportunity.product}, posso te ajudar com as principais dúvidas. ${context || 'O objetivo é manter a conversa clara, objetiva e focada nas necessidades do cliente.'} Se preferir, posso te explicar melhor as opções e o valor estimado.` ,
+      `${base[(variant + 1) % base.length]} Claro! Em relação a ${opportunity.product}, a nossa proposta é atender ao seu contexto com praticidade e clareza. Segue o que você precisa saber para tomar a melhor decisão.` ,
+      `${base[(variant + 2) % base.length]} Com certeza. O que você precisa saber sobre ${opportunity.product} pode ser respondido de forma simples e direta, para facilitar sua escolha.`
+    ],
+    'retomada-negociacao': [
+      `${base[variant % base.length]} Quero retomar a conversa sobre ${opportunity.product} e entender se ainda existe interesse em avançar. Posso ajustar a proposta, esclarecer detalhes e facilitar a próxima etapa da negociação.`,
+      `${base[(variant + 1) % base.length]} Gostaria de retomar nossa conversa sobre ${opportunity.product}. Se ainda houver interesse, posso te ajudar a avançar com a proposta e definir os próximos passos.`,
+      `${base[(variant + 2) % base.length]} Reabrindo a conversa sobre ${opportunity.product}, estou disponível para continuar o atendimento e dar andamento à sua decisão.`
+    ]
+  };
+
+  const variants = templates[objective] || templates.acompanhamento;
+  return variants[variant % variants.length];
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  }).format(Number(value || 0));
+}
+
+function formatDate(value) {
+  if (!value) {
+    return '—';
+  }
+
+  return new Date(value).toLocaleDateString('pt-BR');
+}
+
+function formatDateShort(date) {
+  return new Date(date).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit'
+  });
+}
+
+function stageLabel(stage) {
+  return stageOptions.find((item) => item.value === stage)?.label || stage;
+}
+
+function daysBetween(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const difference = end.getTime() - start.getTime();
+  return Math.max(Math.ceil(difference / (1000 * 60 * 60 * 24)), 0);
+}
+
+function getStartOfCurrentWeek() {
+  const now = new Date();
+  const start = new Date(now);
+  const day = start.getDay();
+  const difference = (day === 0 ? -6 : 1) - day;
+  start.setDate(start.getDate() + difference);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function getVarianceLabel(current, previous, suffix = '') {
+  const difference = current - previous;
+  const signal = difference >= 0 ? '+' : '-';
+  return `${signal}${Math.abs(difference)}${suffix}`;
+}
+
+export default App;
