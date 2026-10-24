@@ -1,20 +1,9 @@
-{
-  "name": "vendafacil-ai",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.2",
-    "vite": "^5.4.10"
-  }
-}
+VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co
+VITE_SUPABASE_ANON_KEY=SUA_CHAVE_PUBLICA
+
+# O projeto também pode usar VITE_SUPABASE_SERVICE_ROLE_KEY em ambiente do servidor, nunca no frontend.
+# Nunca exponha chaves secretas no navegador.
+
+
+
+

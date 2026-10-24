@@ -1,10 +1,19 @@
-export const supabaseConfig = {
-  enabled: false,
-  warning: 'Integração com Supabase aguardando configuração em ambiente real. Esta versão usa dados de demonstração locais.',
-  url: '',
-  anonKey: ''
-};
+import { createClient } from '@supabase/supabase-js';
 
-export function getSupabaseSetupNote() {
-  return 'Configure URL e anon key em variáveis de ambiente para habilitar autenticação e armazenamento com Supabase.';
-}
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
+
+export const supabase = hasSupabaseConfig
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    })
+  : null;
+
+export const supabaseSetupNote =
+  'Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para conectar autenticação e persistência real no backend.';

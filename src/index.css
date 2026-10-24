@@ -1,7 +1,12 @@
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
+import { hasSupabaseConfig, supabase } from './lib/supabase';
 
-const STORAGE_KEY = 'venda-facil-ai-opportunities-v1';
+const STORAGE_KEYS = {
+  auth: 'vendafacil_auth_session',
+  users: 'vendafacil_users',
+  opportunities: 'vendafacil_opportunities'
+};
 
 const stageOptions = [
   { value: 'novo-contato', label: 'Novo contato' },
@@ -20,216 +25,259 @@ const objectiveOptions = {
   'retomada-negociacao': 'Retomada de negociação'
 };
 
-const defaultOpportunities = [
-  {
-    id: 'OP-101',
-    clientName: 'Maria Souza',
-    product: 'Cadeira ergonômica para escritório',
-    value: 1850,
-    channel: 'Instagram',
-    lastContact: '2026-10-18',
-    stage: 'aguardando-resposta',
-    notes: 'Cliente demonstrou interesse após anúncio e solicitou orçamento detalhado.',
-    lossReason: '',
-    createdAt: '2026-10-10'
-  },
-  {
-    id: 'OP-102',
-    clientName: 'João Almeida',
-    product: 'Kit de café para pequenas empresas',
-    value: 540,
-    channel: 'WhatsApp',
-    lastContact: '2026-10-20',
-    stage: 'em-negociacao',
-    notes: 'Interessado em iniciar compra em duas parcelas e pediu análise de frete.',
-    lossReason: '',
-    createdAt: '2026-10-12'
-  },
-  {
-    id: 'OP-103',
-    clientName: 'Lúcia Vieira',
-    product: 'Manutenção preventiva de caixa registradora',
-    value: 1200,
-    channel: 'Telefone',
-    lastContact: '2026-10-10',
-    stage: 'novo-contato',
-    notes: 'Primeiro contato realizado e cliente pediu envio de proposta.',
-    lossReason: '',
-    createdAt: '2026-10-15'
-  },
-  {
-    id: 'OP-104',
-    clientName: 'Pedro Santos',
-    product: 'Sistema de gestão de estoque',
-    value: 2800,
-    channel: 'Site',
-    lastContact: '2026-10-17',
-    stage: 'venda-concluida',
-    notes: 'Proposta aceita e pagamento confirmado para início da implantação.',
-    lossReason: '',
-    createdAt: '2026-09-28'
-  },
-  {
-    id: 'OP-105',
-    clientName: 'Ana Pires',
-    product: 'Máquina de café para atendimento rápido',
-    value: 740,
-    channel: 'WhatsApp',
-    lastContact: '2026-10-12',
-    stage: 'perdida',
-    notes: 'Negociação atrasada por orçamento elevado comparado ao mercado local.',
-    lossReason: 'Preço acima do orçamento',
-    createdAt: '2026-10-04'
-  },
-  {
-    id: 'OP-106',
-    clientName: 'Henrique Silva',
-    product: 'Kit promocional com adesivos e canecas',
-    value: 390,
-    channel: 'Indicação',
-    lastContact: '2026-10-15',
-    stage: 'aguardando-resposta',
-    notes: 'Cliente pediu orçamento e demonstrou interesse em várias unidades.',
-    lossReason: '',
-    createdAt: '2026-10-09'
-  },
-  {
-    id: 'OP-107',
-    clientName: 'Bianca Costa',
-    product: 'Consultoria para reorganização de ponto de venda',
-    value: 950,
-    channel: 'Telefone',
-    lastContact: '2026-10-19',
-    stage: 'em-negociacao',
-    notes: 'Cliente avaliou duas opções e está comparando serviços com concorrentes.',
-    lossReason: '',
-    createdAt: '2026-10-11'
-  }
-];
+const createEmptyOpportunity = () => ({
+  id: '',
+  clientName: '',
+  product: '',
+  value: 0,
+  channel: 'WhatsApp',
+  lastContact: new Date().toISOString().slice(0, 10),
+  stage: 'novo-contato',
+  notes: '',
+  lossReason: ''
+});
 
 function App() {
+  const [authState, setAuthState] = useState(() => readAuthState());
+  const [opportunities, setOpportunities] = useState(() => readOpportunitiesForCompany(readAuthState()?.company?.id));
+
+  useEffect(() => {
+    persistAuthState(authState);
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState?.company?.id) {
+      setOpportunities(readOpportunitiesForCompany(authState.company.id));
+    } else {
+      setOpportunities([]);
+    }
+  }, [authState?.company?.id]);
+
+  const handleRegister = async (payload) => {
+    if (hasSupabaseConfig && supabase) {
+      const { data, error } = await supabase.auth.signUp({
+        email: payload.email,
+        password: payload.password,
+        options: {
+          data: {
+            company_name: payload.companyName,
+            responsible_name: payload.responsibleName
+          }
+        }
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const result = data?.user;
+      if (!result) {
+        throw new Error('Não foi possível concluir o cadastro.');
+      }
+
+      const company = {
+        id: `company-${result.id}`,
+        name: payload.companyName,
+        responsibleName: payload.responsibleName,
+        userId: result.id
+      };
+
+      setAuthState({
+        isAuthenticated: true,
+        user: result,
+        company,
+        email: payload.email
+      });
+
+      return;
+    }
+
+    const users = readStorage(STORAGE_KEYS.users, []);
+    if (users.some((item) => item.email.toLowerCase() === payload.email.toLowerCase())) {
+      throw new Error('Já existe um usuário cadastrado com esse e-mail.');
+    }
+
+    const companyId = `company-${Date.now()}`;
+    const userId = `user-${Date.now()}`;
+    const account = {
+      id: userId,
+      email: payload.email,
+      companyId,
+      companyName: payload.companyName,
+      responsibleName: payload.responsibleName,
+      passwordHash: await hashValue(payload.password)
+    };
+
+    users.push(account);
+    writeStorage(STORAGE_KEYS.users, users);
+
+    setAuthState({
+      isAuthenticated: true,
+      user: { id: userId, email: payload.email },
+      company: { id: companyId, name: payload.companyName, responsibleName: payload.responsibleName },
+      email: payload.email
+    });
+  };
+
+  const handleLogin = async (payload) => {
+    if (hasSupabaseConfig && supabase) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: payload.email,
+        password: payload.password
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const companyName = data.user?.user_metadata?.company_name || 'Minha empresa';
+      const responsibleName = data.user?.user_metadata?.responsible_name || 'Responsável';
+
+      setAuthState({
+        isAuthenticated: true,
+        user: data.user,
+        company: {
+          id: `company-${data.user.id}`,
+          name: companyName,
+          responsibleName
+        },
+        email: payload.email
+      });
+
+      return;
+    }
+
+    const users = readStorage(STORAGE_KEYS.users, []);
+    const matchingUser = users.find((item) => item.email.toLowerCase() === payload.email.toLowerCase());
+
+    if (!matchingUser) {
+      throw new Error('E-mail não encontrado.');
+    }
+
+    const passwordHash = await hashValue(payload.password);
+    if (matchingUser.passwordHash !== passwordHash) {
+      throw new Error('Senha incorreta.');
+    }
+
+    setAuthState({
+      isAuthenticated: true,
+      user: { id: matchingUser.id, email: matchingUser.email },
+      company: {
+        id: matchingUser.companyId,
+        name: matchingUser.companyName,
+        responsibleName: matchingUser.responsibleName
+      },
+      email: matchingUser.email
+    });
+  };
+
+  const handleLogout = async () => {
+    if (hasSupabaseConfig && supabase) {
+      await supabase.auth.signOut();
+    }
+    setAuthState({ isAuthenticated: false, user: null, company: null, email: '' });
+  };
+
+  const handlePasswordReset = async (email) => {
+    if (hasSupabaseConfig && supabase) {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/recuperar-senha`
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return { message: 'Se esse e-mail estiver cadastrado, o link de recuperação foi enviado.' };
+    }
+
+    const users = readStorage(STORAGE_KEYS.users, []);
+    const found = users.some((item) => item.email.toLowerCase() === email.toLowerCase());
+    if (!found) {
+      return { message: 'Se esse e-mail estiver cadastrado, o link de recuperação foi enviado.' };
+    }
+
+    return { message: 'Link de recuperação preparado para ambiente de desenvolvimento local.' };
+  };
+
+  const handleOpportunityCreate = (payload) => {
+    const normalizedPayload = {
+      ...payload,
+      id: payload.id || `op-${Date.now()}`,
+      empresaId: authState.company.id,
+      value: Number(payload.value || 0),
+      stage: payload.stage || 'novo-contato',
+      channel: payload.channel || 'WhatsApp',
+      lastContact: payload.lastContact || new Date().toISOString().slice(0, 10),
+      notes: payload.notes || '',
+      lossReason: payload.stage === 'perdida' ? payload.lossReason : '',
+      createdAt: payload.createdAt || new Date().toISOString()
+    };
+
+    const next = authState.company?.id
+      ? upsertOpportunityForCompany(authState.company.id, normalizedPayload)
+      : [normalizedPayload];
+
+    setOpportunities(next);
+    return normalizedPayload;
+  };
+
+  const handleOpportunityDelete = (id) => {
+    if (!authState.company?.id) return;
+    setOpportunities(removeOpportunityForCompany(authState.company.id, id));
+  };
+
+  const handleOpportunityUpdate = (payload) => {
+    const edited = {
+      ...payload,
+      empresaId: authState.company.id,
+      value: Number(payload.value || 0),
+      lostReason: payload.stage === 'perdida' ? payload.lossReason : '',
+      lastContact: payload.lastContact || new Date().toISOString().slice(0, 10)
+    };
+
+    const next = authState.company?.id
+      ? upsertOpportunityForCompany(authState.company.id, edited)
+      : [edited];
+
+    setOpportunities(next);
+    return edited;
+  };
+
+  const dashboardStats = useMemo(() => buildDashboardStats(opportunities), [opportunities]);
+
   return (
     <BrowserRouter>
-      <AppRoutes />
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={authState.isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage onLogin={handleLogin} />} />
+        <Route path="/cadastro" element={authState.isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage onRegister={handleRegister} />} />
+        <Route path="/recuperar-senha" element={authState.isAuthenticated ? <Navigate to="/dashboard" replace /> : <RecoveryPage onReset={handlePasswordReset} />} />
+        <Route
+          path="/*"
+          element={
+            authState.isAuthenticated ? (
+              <AppShell
+                company={authState.company}
+                onLogout={handleLogout}
+                opportunities={opportunities}
+                setOpportunities={setOpportunities}
+                stats={dashboardStats}
+                onCreateOpportunity={handleOpportunityCreate}
+                onUpdateOpportunity={handleOpportunityUpdate}
+                onDeleteOpportunity={handleOpportunityDelete}
+              />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 }
 
-function AppRoutes() {
-  const location = useLocation();
-  const isLandingPage = location.pathname === '/';
-
-  const [opportunities, setOpportunities] = useState(() => {
-    if (typeof window === 'undefined') {
-      return defaultOpportunities;
-    }
-
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : defaultOpportunities;
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(opportunities));
-    }
-  }, [opportunities]);
-
-  const dashboardStats = useMemo(() => buildDashboardStats(opportunities), [opportunities]);
-
-  if (isLandingPage) {
-    return <LandingPage />;
-  }
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-box">
-          <div className="brand-icon">V</div>
-          <div>
-            <strong>VendaFácil AI</strong>
-            <span>Demonstrativo</span>
-          </div>
-        </div>
-
-        <nav className="nav-list">
-          <NavLink to="/dashboard" className="nav-item">
-            Dashboard
-          </NavLink>
-          <NavLink to="/oportunidades" className="nav-item">
-            Oportunidades
-          </NavLink>
-          <NavLink to="/prioridades" className="nav-item">
-            Prioridades com IA
-          </NavLink>
-          <NavLink to="/assistente" className="nav-item">
-            Assistente de mensagens
-          </NavLink>
-          <NavLink to="/relatorio" className="nav-item">
-            Relatório semanal
-          </NavLink>
-        </nav>
-
-        <div className="sidebar-card">
-          <small>Integrações futuras</small>
-          <p>Supabase e autenticação de múltiplas contas ainda serão ativadas em versão de produção.</p>
-        </div>
-      </aside>
-
-      <div className="page-panel">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Painel do comerciante</p>
-            <h1>Central de vendas</h1>
-          </div>
-          <div className="topbar-actions">
-            <span className="demo-pill">Dados de demonstração</span>
-            <Link to="/" className="button button-ghost">
-              Ver apresentação
-            </Link>
-          </div>
-        </header>
-
-        <div className="mobile-nav">
-          <NavLink to="/dashboard">Dashboard</NavLink>
-          <NavLink to="/oportunidades">Oportunidades</NavLink>
-          <NavLink to="/prioridades">Prioridades</NavLink>
-          <NavLink to="/assistente">Mensagens</NavLink>
-        </div>
-
-        <main className="content-area">
-          <Routes>
-            <Route path="/dashboard" element={<DashboardPage opportunities={opportunities} stats={dashboardStats} />} />
-            <Route path="/oportunidades" element={<OportunidadesPage opportunities={opportunities} setOpportunities={setOpportunities} />} />
-            <Route path="/prioridades" element={<PrioridadesPage opportunities={opportunities} />} />
-            <Route path="/assistente" element={<AssistentePage opportunities={opportunities} />} />
-            <Route path="/relatorio" element={<RelatorioPage opportunities={opportunities} />} />
-          </Routes>
-        </main>
-      </div>
-    </div>
-  );
-}
-
 function LandingPage() {
-  const features = [
-    {
-      title: 'Controle centralizado',
-      text: 'Acompanhe clientes, valores e etapas em uma visão simples para cada oportunidade.'
-    },
-    {
-      title: 'Priorização guiada',
-      text: 'Veja quais clientes precisam de atenção imediata com regras claras e explicáveis.'
-    },
-    {
-      title: 'Mensagens mais rápidas',
-      text: 'Gere textos em português para diferentes objetivos de conversa sem perder o contexto.'
-    },
-    {
-      title: 'Relatórios para decisão',
-      text: 'Entenda o que está convertendo e onde pode melhorar a sequência de vendas.'
-    }
-  ];
-
   return (
     <div className="landing-page">
       <header className="landing-header">
@@ -237,9 +285,10 @@ function LandingPage() {
           <div className="brand-icon large">V</div>
           <span>VendaFácil AI</span>
         </div>
-        <Link to="/dashboard" className="button button-primary">
-          Experimentar demonstração
-        </Link>
+        <div className="landing-actions">
+          <Link to="/login" className="button button-ghost light">Entrar</Link>
+          <Link to="/cadastro" className="button button-primary">Começar agora</Link>
+        </div>
       </header>
 
       <section className="hero">
@@ -251,12 +300,8 @@ function LandingPage() {
             rapidamente e tomar decisões mais simples com base em dados reais.
           </p>
           <div className="hero-actions">
-            <Link to="/dashboard" className="button button-primary big">
-              Explorar demonstração
-            </Link>
-            <a href="#interesse" className="button button-ghost big light">
-              Falar com a equipe
-            </a>
+            <Link to="/cadastro" className="button button-primary big">Experimentar demonstração</Link>
+            <a href="#interesse" className="button button-ghost big light">Falar com a equipe</a>
           </div>
           <ul className="hero-benefits">
             <li>Sem necessidade de WhatsApp na primeira versão</li>
@@ -288,11 +333,12 @@ function LandingPage() {
           <span className="eyebrow">Problema</span>
           <h3>Os pequenos negócios perdem clientes por falta de organização.</h3>
         </div>
+
         <div className="info-grid two-columns">
           <div className="info-panel">
             <h4>O que acontece no dia a dia</h4>
             <p>
-              Mensagens são perdidas, clientes esperam sem resposta, e o dono precisa lembrar manualmente
+              Mensagens são perdidas, clientes esperam sem resposta e o dono precisa lembrar manualmente
               cada oportunidade. Isso reduz o tempo de resposta e diminui as chances de fechar vendas.
             </p>
           </div>
@@ -314,7 +360,19 @@ function LandingPage() {
           <h3>Quatro recursos centrais para fechar mais negócios</h3>
         </div>
         <div className="feature-grid">
-          {features.map((feature) => (
+          {[{
+            title: 'Controle centralizado',
+            text: 'Acompanhe clientes, valores e etapas em uma visão simples para cada oportunidade.'
+          }, {
+            title: 'Priorização guiada',
+            text: 'Veja quais clientes precisam de atenção imediata com regras claras e explicáveis.'
+          }, {
+            title: 'Mensagens mais rápidas',
+            text: 'Gere textos em português para diferentes objetivos de conversa sem perder o contexto.'
+          }, {
+            title: 'Relatórios para decisão',
+            text: 'Entenda o que está convertendo e onde pode melhorar a sequência de vendas.'
+          }].map((feature) => (
             <div key={feature.title} className="feature-card">
               <div className="feature-bullet" />
               <h4>{feature.title}</h4>
@@ -334,11 +392,252 @@ function LandingPage() {
             <p>Comercial</p>
             <strong>Receber apresentação da solução</strong>
           </div>
-          <a href="mailto:contato@vendafacil.ai" className="button button-primary">
-            contato@vendafacil.ai
-          </a>
+          <a href="mailto:contato@vendafacil.ai" className="button button-primary">contato@vendafacil.ai</a>
         </div>
       </section>
+    </div>
+  );
+}
+
+function LoginPage({ onLogin }) {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await onLogin(form);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message || 'Falha ao entrar.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <div className="brand-icon">V</div>
+          <div>
+            <strong>VendaFácil AI</strong>
+            <span>Login</span>
+          </div>
+        </div>
+
+        <h2>Entrar na sua conta</h2>
+        <form className="auth-form" onSubmit={submit}>
+          <label>
+            E-mail
+            <input type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+          </label>
+          <label>
+            Senha
+            <input type="password" required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
+          </label>
+
+          {error && <div className="auth-error">{error}</div>}
+
+          <button type="submit" className="button button-primary full" disabled={isLoading}>
+            {isLoading ? 'Entrando...' : 'Entrar'}
+          </button>
+        </form>
+
+        <div className="auth-links">
+          <Link to="/cadastro">Criar conta</Link>
+          <Link to="/recuperar-senha">Recuperar senha</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RegisterPage({ onRegister }) {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ companyName: '', responsibleName: '', email: '', password: '' });
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await onRegister(form);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message || 'Não foi possível cadastrar.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <div className="brand-icon">V</div>
+          <div>
+            <strong>VendaFácil AI</strong>
+            <span>Cadastro</span>
+          </div>
+        </div>
+
+        <h2>Criar sua conta</h2>
+        <form className="auth-form" onSubmit={submit}>
+          <label>
+            Nome da empresa
+            <input required value={form.companyName} onChange={(event) => setForm({ ...form, companyName: event.target.value })} />
+          </label>
+          <label>
+            Nome do responsável
+            <input required value={form.responsibleName} onChange={(event) => setForm({ ...form, responsibleName: event.target.value })} />
+          </label>
+          <label>
+            E-mail
+            <input type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+          </label>
+          <label>
+            Senha
+            <input type="password" required minLength={8} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
+          </label>
+
+          {error && <div className="auth-error">{error}</div>}
+
+          <button type="submit" className="button button-primary full" disabled={isLoading}>
+            {isLoading ? 'Cadastrando...' : 'Criar conta'}
+          </button>
+        </form>
+
+        <div className="auth-links">
+          <Link to="/login">Já tenho conta</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecoveryPage({ onReset }) {
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const result = await onReset(email);
+      setMessage(result.message || 'Se esse e-mail estiver cadastrado, a recuperação foi enviada.');
+    } catch (err) {
+      setError(err.message || 'Não foi possível enviar a recuperação.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <div className="brand-icon">V</div>
+          <div>
+            <strong>VendaFácil AI</strong>
+            <span>Recuperar senha</span>
+          </div>
+        </div>
+
+        <h2>Recuperar acesso</h2>
+        <form className="auth-form" onSubmit={submit}>
+          <label>
+            E-mail cadastrado
+            <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+          </label>
+
+          {error && <div className="auth-error">{error}</div>}
+          {message && <div className="auth-success">{message}</div>}
+
+          <button type="submit" className="button button-primary full" disabled={isLoading}>
+            {isLoading ? 'Enviando...' : 'Enviar instruções'}
+          </button>
+        </form>
+
+        <div className="auth-links">
+          <Link to="/login">Voltar ao login</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppShell({ company, onLogout, opportunities, setOpportunities, stats, onCreateOpportunity, onUpdateOpportunity, onDeleteOpportunity }) {
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand-box">
+          <div className="brand-icon">V</div>
+          <div>
+            <strong>VendaFácil AI</strong>
+            <span>{company?.name || 'Minha empresa'}</span>
+          </div>
+        </div>
+
+        <nav className="nav-list">
+          <NavLink to="/dashboard" className="nav-item">Dashboard</NavLink>
+          <NavLink to="/oportunidades" className="nav-item">Oportunidades</NavLink>
+          <NavLink to="/prioridades" className="nav-item">Prioridades com IA</NavLink>
+          <NavLink to="/assistente" className="nav-item">Assistente de mensagens</NavLink>
+          <NavLink to="/relatorio" className="nav-item">Relatório semanal</NavLink>
+        </nav>
+
+        <div className="sidebar-card">
+          <small>Empresa</small>
+          <p>{company?.name || 'Empresa sem nome'}</p>
+          <button type="button" className="button button-ghost full" onClick={onLogout}>
+            Sair
+          </button>
+        </div>
+      </aside>
+
+      <div className="page-panel">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Painel do comerciante</p>
+            <h1>Central de vendas</h1>
+          </div>
+          <div className="topbar-actions">
+            <span className="demo-pill">Empresa: {company?.name || 'Minha empresa'}</span>
+            <button type="button" className="button button-ghost" onClick={onLogout}>Logout</button>
+          </div>
+        </header>
+
+        <div className="mobile-nav">
+          <NavLink to="/dashboard">Dashboard</NavLink>
+          <NavLink to="/oportunidades">Oportunidades</NavLink>
+          <NavLink to="/prioridades">Prioridades</NavLink>
+          <NavLink to="/assistente">Mensagens</NavLink>
+        </div>
+
+        <main className="content-area">
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage opportunities={opportunities} stats={stats} />} />
+            <Route path="/oportunidades" element={<OportunidadesPage opportunities={opportunities} setOpportunities={setOpportunities} onCreateOpportunity={onCreateOpportunity} onUpdateOpportunity={onUpdateOpportunity} onDeleteOpportunity={onDeleteOpportunity} />} />
+            <Route path="/prioridades" element={<PrioridadesPage opportunities={opportunities} />} />
+            <Route path="/assistente" element={<AssistentePage opportunities={opportunities} />} />
+            <Route path="/relatorio" element={<RelatorioPage opportunities={opportunities} />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }
@@ -360,9 +659,7 @@ function DashboardPage({ opportunities, stats }) {
         <section className="panel">
           <div className="panel-header">
             <h3>Clientes prioritários</h3>
-            <Link to="/prioridades" className="text-link">
-              Ver todos
-            </Link>
+            <Link to="/prioridades" className="text-link">Ver todos</Link>
           </div>
 
           <div className="priority-list">
@@ -377,7 +674,7 @@ function DashboardPage({ opportunities, stats }) {
                 </div>
               ))
             ) : (
-              <p className="empty-state">Ainda não há dados para priorização.</p>
+              <p className="empty-state">Nenhuma oportunidade cadastrada nesta empresa.</p>
             )}
           </div>
         </section>
@@ -385,7 +682,7 @@ function DashboardPage({ opportunities, stats }) {
         <section className="panel">
           <div className="panel-header">
             <h3>Desempenho semanal</h3>
-            <span className="mini-badge">Demonstração</span>
+            <span className="mini-badge">Produção local</span>
           </div>
 
           <div className="chart-box">
@@ -400,15 +697,13 @@ function DashboardPage({ opportunities, stats }) {
       </div>
 
       <div className="cta-row">
-        <Link to="/oportunidades" className="button button-primary big">
-          Cadastrar oportunidade
-        </Link>
+        <Link to="/oportunidades" className="button button-primary big">Cadastrar oportunidade</Link>
       </div>
     </>
   );
 }
 
-function OportunidadesPage({ opportunities, setOpportunities }) {
+function OportunidadesPage({ opportunities, setOpportunities, onCreateOpportunity, onUpdateOpportunity, onDeleteOpportunity }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState('todas');
   const [channelFilter, setChannelFilter] = useState('todos');
@@ -418,71 +713,54 @@ function OportunidadesPage({ opportunities, setOpportunities }) {
 
   const filteredOpportunities = useMemo(() => {
     return opportunities.filter((item) => {
-      const matchesSearch =
-        !searchTerm ||
-        item.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.product.toLowerCase().includes(searchTerm.toLowerCase());
-
+      const matchesSearch = !searchTerm || item.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || item.product.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStage = stageFilter === 'todas' || item.stage === stageFilter;
       const matchesChannel = channelFilter === 'todos' || item.channel === channelFilter;
-
       return matchesSearch && matchesStage && matchesChannel;
     });
   }, [opportunities, searchTerm, stageFilter, channelFilter]);
 
-  function openCreateForm() {
-    setDraft(createEmptyOpportunity());
+  const openCreateForm = () => {
     setEditingId(null);
+    setDraft(createEmptyOpportunity());
     setIsFormOpen(true);
-  }
+  };
 
-  function openEditForm(opportunity) {
-    setDraft({
-      ...opportunity,
-      value: Number(opportunity.value)
-    });
+  const openEditForm = (opportunity) => {
     setEditingId(opportunity.id);
+    setDraft({ ...opportunity, value: Number(opportunity.value || 0) });
     setIsFormOpen(true);
-  }
+  };
 
-  function handleSubmit(event) {
+  const handleSubmit = (event) => {
     event.preventDefault();
 
     const payload = {
       ...draft,
-      id: editingId || `OP-${String(Date.now()).slice(-4)}`,
       value: Number(draft.value || 0),
       stage: draft.stage || 'novo-contato',
       channel: draft.channel || 'WhatsApp',
+      notes: draft.notes || '',
       lossReason: draft.stage === 'perdida' ? draft.lossReason : '',
-      notes: draft.notes || ''
+      lastContact: draft.lastContact || new Date().toISOString().slice(0, 10)
     };
 
     if (editingId) {
-      setOpportunities((previous) => previous.map((item) => (item.id === editingId ? payload : item)));
+      onUpdateOpportunity({ ...payload, id: editingId });
     } else {
-      setOpportunities((previous) => [{ ...payload, createdAt: new Date().toISOString().slice(0, 10) }, ...previous]);
+      onCreateOpportunity(payload);
     }
 
     setIsFormOpen(false);
     setEditingId(null);
     setDraft(createEmptyOpportunity());
-  }
-
-  function removeOpportunity(id) {
-    setOpportunities((previous) => previous.filter((item) => item.id !== id));
-  }
+  };
 
   return (
     <>
       <div className="toolbar">
         <div className="search-box">
-          <input
-            aria-label="Buscar cliente"
-            placeholder="Buscar cliente ou produto"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-          />
+          <input aria-label="Buscar cliente" placeholder="Buscar cliente ou produto" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
         </div>
 
         <label>
@@ -490,9 +768,7 @@ function OportunidadesPage({ opportunities, setOpportunities }) {
           <select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
             <option value="todas">Todas</option>
             {stageOptions.map((stage) => (
-              <option key={stage.value} value={stage.value}>
-                {stage.label}
-              </option>
+              <option key={stage.value} value={stage.value}>{stage.label}</option>
             ))}
           </select>
         </label>
@@ -502,16 +778,12 @@ function OportunidadesPage({ opportunities, setOpportunities }) {
           <select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
             <option value="todos">Todos</option>
             {channelOptions.map((channel) => (
-              <option key={channel} value={channel}>
-                {channel}
-              </option>
+              <option key={channel} value={channel}>{channel}</option>
             ))}
           </select>
         </label>
 
-        <button type="button" className="button button-primary" onClick={openCreateForm}>
-          + Cadastrar oportunidade
-        </button>
+        <button type="button" className="button button-primary" onClick={openCreateForm}>+ Cadastrar oportunidade</button>
       </div>
 
       {isFormOpen && (
@@ -519,70 +791,40 @@ function OportunidadesPage({ opportunities, setOpportunities }) {
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h3>{editingId ? 'Editar oportunidade' : 'Nova oportunidade'}</h3>
-              <button type="button" className="close-button" onClick={() => setIsFormOpen(false)}>
-                ×
-              </button>
+              <button type="button" className="close-button" onClick={() => setIsFormOpen(false)}>×</button>
             </div>
 
             <form onSubmit={handleSubmit} className="opportunity-form">
               <div className="field-grid">
                 <label>
                   Cliente
-                  <input
-                    required
-                    value={draft.clientName}
-                    onChange={(event) => setDraft({ ...draft, clientName: event.target.value })}
-                  />
+                  <input required value={draft.clientName} onChange={(event) => setDraft({ ...draft, clientName: event.target.value })} />
                 </label>
                 <label>
                   Produto ou serviço
-                  <input
-                    required
-                    value={draft.product}
-                    onChange={(event) => setDraft({ ...draft, product: event.target.value })}
-                  />
+                  <input required value={draft.product} onChange={(event) => setDraft({ ...draft, product: event.target.value })} />
                 </label>
                 <label>
                   Valor estimado
-                  <input
-                    type="number"
-                    min="0"
-                    required
-                    value={draft.value}
-                    onChange={(event) => setDraft({ ...draft, value: Number(event.target.value || 0) })}
-                  />
+                  <input type="number" min="0" required value={draft.value} onChange={(event) => setDraft({ ...draft, value: Number(event.target.value || 0) })} />
                 </label>
                 <label>
                   Canal de contato
-                  <select
-                    value={draft.channel}
-                    onChange={(event) => setDraft({ ...draft, channel: event.target.value })}
-                  >
+                  <select value={draft.channel} onChange={(event) => setDraft({ ...draft, channel: event.target.value })}>
                     {channelOptions.map((channel) => (
-                      <option key={channel} value={channel}>
-                        {channel}
-                      </option>
+                      <option key={channel} value={channel}>{channel}</option>
                     ))}
                   </select>
                 </label>
                 <label>
                   Último atendimento
-                  <input
-                    type="date"
-                    value={draft.lastContact}
-                    onChange={(event) => setDraft({ ...draft, lastContact: event.target.value })}
-                  />
+                  <input type="date" value={draft.lastContact} onChange={(event) => setDraft({ ...draft, lastContact: event.target.value })} />
                 </label>
                 <label>
                   Etapa da venda
-                  <select
-                    value={draft.stage}
-                    onChange={(event) => setDraft({ ...draft, stage: event.target.value })}
-                  >
+                  <select value={draft.stage} onChange={(event) => setDraft({ ...draft, stage: event.target.value })}>
                     {stageOptions.map((stage) => (
-                      <option key={stage.value} value={stage.value}>
-                        {stage.label}
-                      </option>
+                      <option key={stage.value} value={stage.value}>{stage.label}</option>
                     ))}
                   </select>
                 </label>
@@ -590,30 +832,19 @@ function OportunidadesPage({ opportunities, setOpportunities }) {
 
               <label>
                 Observações
-                <textarea
-                  rows="3"
-                  value={draft.notes}
-                  onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
-                />
+                <textarea rows="3" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
               </label>
 
               {draft.stage === 'perdida' && (
                 <label>
                   Motivo da perda
-                  <input
-                    value={draft.lossReason}
-                    onChange={(event) => setDraft({ ...draft, lossReason: event.target.value })}
-                  />
+                  <input value={draft.lossReason} onChange={(event) => setDraft({ ...draft, lossReason: event.target.value })} />
                 </label>
               )}
 
               <div className="modal-actions">
-                <button type="button" className="button button-ghost" onClick={() => setIsFormOpen(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="button button-primary">
-                  {editingId ? 'Salvar alterações' : 'Cadastrar'}
-                </button>
+                <button type="button" className="button button-ghost" onClick={() => setIsFormOpen(false)}>Cancelar</button>
+                <button type="submit" className="button button-primary">{editingId ? 'Salvar alterações' : 'Cadastrar'}</button>
               </div>
             </form>
           </div>
@@ -648,26 +879,20 @@ function OportunidadesPage({ opportunities, setOpportunities }) {
                     <td>{formatCurrency(item.value)}</td>
                     <td>{item.channel}</td>
                     <td>{formatDate(item.lastContact)}</td>
-                    <td>
-                      <span className={`status-tag ${item.stage}`}>
-                        {stageLabel(item.stage)}
-                      </span>
-                    </td>
+                    <td><span className={`status-tag ${item.stage}`}>{stageLabel(item.stage)}</span></td>
                     <td className="action-buttons">
-                      <button type="button" className="link-button" onClick={() => openEditForm(item)}>
-                        Editar
-                      </button>
-                      <button type="button" className="link-button danger" onClick={() => removeOpportunity(item.id)}>
-                        Excluir
-                      </button>
+                      <button type="button" className="link-button" onClick={() => openEditForm(item)}>Editar</button>
+                      <button type="button" className="link-button danger" onClick={() => {
+                        if (window.confirm('Deseja excluir esta oportunidade?')) {
+                          onDeleteOpportunity(item.id);
+                        }
+                      }}>Excluir</button>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="7" className="empty-state">
-                    Nenhuma oportunidade encontrada para os filtros selecionados.
-                  </td>
+                  <td colSpan="7" className="empty-state">Nenhuma oportunidade cadastrada para esta empresa.</td>
                 </tr>
               )}
             </tbody>
@@ -685,7 +910,7 @@ function PrioridadesPage({ opportunities }) {
     <section className="panel">
       <div className="panel-header">
         <h3>Prioridades com IA</h3>
-        <span className="mini-badge">Regras transparentes de priorização</span>
+        <span className="mini-badge">Regras transparentes</span>
       </div>
 
       <div className="priority-grid">
@@ -752,9 +977,7 @@ function AssistentePage({ opportunities }) {
             Oportunidade
             <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
               {opportunities.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.clientName} • {item.product}
-                </option>
+                <option key={item.id} value={item.id}>{item.clientName} • {item.product}</option>
               ))}
             </select>
           </label>
@@ -763,34 +986,23 @@ function AssistentePage({ opportunities }) {
             Objetivo da mensagem
             <select value={objective} onChange={(event) => setObjective(event.target.value)}>
               {Object.entries(objectiveOptions).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
+                <option key={value} value={value}>{label}</option>
               ))}
             </select>
           </label>
 
           <label>
             Contexto do atendimento
-            <textarea
-              rows="6"
-              value={context}
-              onChange={(event) => setContext(event.target.value)}
-            />
+            <textarea rows="6" value={context} onChange={(event) => setContext(event.target.value)} />
           </label>
         </div>
 
         <div className="message-box">
           <p className="message-label">Mensagem sugerida</p>
           <div className="message-output">{message}</div>
-
           <div className="message-actions">
-            <button type="button" className="button button-primary" onClick={() => setSeed((value) => value + 1)}>
-              Gerar novamente
-            </button>
-            <button type="button" className="button button-ghost" onClick={copyMessage}>
-              Copiar mensagem
-            </button>
+            <button type="button" className="button button-primary" onClick={() => setSeed((value) => value + 1)}>Gerar novamente</button>
+            <button type="button" className="button button-ghost" onClick={copyMessage}>Copiar mensagem</button>
           </div>
         </div>
       </div>
@@ -805,7 +1017,7 @@ function RelatorioPage({ opportunities }) {
     <section className="panel">
       <div className="panel-header">
         <h3>Relatório semanal</h3>
-        <span className="mini-badge">Indicadores calculados a partir dos registros</span>
+        <span className="mini-badge">Indicadores calculados</span>
       </div>
 
       <div className="cards-grid compact-grid">
@@ -821,10 +1033,7 @@ function RelatorioPage({ opportunities }) {
           {report.current.lossReasons.length ? (
             <ul className="reason-list">
               {report.current.lossReasons.map(([reason, count]) => (
-                <li key={reason}>
-                  <span>{reason}</span>
-                  <strong>{count}</strong>
-                </li>
+                <li key={reason}><span>{reason}</span><strong>{count}</strong></li>
               ))}
             </ul>
           ) : (
@@ -836,18 +1045,9 @@ function RelatorioPage({ opportunities }) {
           <h4>Comparação com o período anterior</h4>
           {report.previous ? (
             <div className="comparison-table">
-              <div>
-                <span>Oportunidades</span>
-                <strong>{getVarianceLabel(report.current.total, report.previous.total)}</strong>
-              </div>
-              <div>
-                <span>Vendas</span>
-                <strong>{getVarianceLabel(report.current.sales, report.previous.sales)}</strong>
-              </div>
-              <div>
-                <span>Conversão</span>
-                <strong>{getVarianceLabel(report.current.conversion, report.previous.conversion, '%')}</strong>
-              </div>
+              <div><span>Oportunidades</span><strong>{getVarianceLabel(report.current.total, report.previous.total)}</strong></div>
+              <div><span>Vendas</span><strong>{getVarianceLabel(report.current.sales, report.previous.sales)}</strong></div>
+              <div><span>Conversão</span><strong>{getVarianceLabel(report.current.conversion, report.previous.conversion, '%')}</strong></div>
             </div>
           ) : (
             <p className="empty-state">Dados insuficientes para comparação com o período anterior.</p>
@@ -873,23 +1073,10 @@ function StatCard({ label, value, detail, accent }) {
   );
 }
 
-function createEmptyOpportunity() {
-  return {
-    clientName: '',
-    product: '',
-    value: 0,
-    channel: 'WhatsApp',
-    lastContact: new Date().toISOString().slice(0, 10),
-    stage: 'novo-contato',
-    notes: '',
-    lossReason: ''
-  };
-}
-
 function buildDashboardStats(opportunities) {
   const total = opportunities.length;
   const needingReturn = opportunities.filter((item) => {
-    const days = daysBetween(new Date(item.lastContact), new Date());
+    const days = daysBetween(new Date(item.lastContact || new Date()), new Date());
     return item.stage === 'aguardando-resposta' || days >= 7;
   }).length;
 
@@ -897,18 +1084,13 @@ function buildDashboardStats(opportunities) {
   const salesOrLosses = opportunities.filter((item) => item.stage === 'venda-concluida' || item.stage === 'perdida').length;
   const conversion = salesOrLosses === 0 ? 0 : (confirmedSales / salesOrLosses) * 100;
 
-  return {
-    total,
-    needingReturn,
-    confirmedSales,
-    conversion
-  };
+  return { total, needingReturn, confirmedSales, conversion };
 }
 
 function buildPriorityList(opportunities) {
   return opportunities
     .map((opportunity) => {
-      const daysWithoutReply = daysBetween(new Date(opportunity.lastContact), new Date());
+      const daysWithoutReply = daysBetween(new Date(opportunity.lastContact || new Date()), new Date());
       let score = 30;
 
       if (opportunity.stage === 'aguardando-resposta') score += 32;
@@ -917,42 +1099,26 @@ function buildPriorityList(opportunities) {
       if (opportunity.stage === 'perdida') score -= 40;
       if (opportunity.stage === 'venda-concluida') score -= 60;
 
-      if (opportunity.value >= 2500) score += 12;
+      if (Number(opportunity.value || 0) >= 2500) score += 12;
       if (daysWithoutReply >= 7) score += 16;
-      if (opportunity.notes.toLowerCase().includes('solicitou') || opportunity.notes.toLowerCase().includes('interessado')) {
-        score += 12;
-      }
+      const notes = String(opportunity.notes || '').toLowerCase();
+      if (notes.includes('solicitou') || notes.includes('interessado')) score += 12;
 
       if (score >= 70) {
-        return {
-          opportunity,
-          score: Math.max(score, 0),
-          label: 'Alta',
-          reason: buildPriorityReason(opportunity, 'Alta')
-        };
+        return { opportunity, score: Math.max(score, 0), label: 'Alta', reason: buildPriorityReason(opportunity, 'Alta') };
       }
 
       if (score >= 40) {
-        return {
-          opportunity,
-          score: Math.max(score, 0),
-          label: 'Média',
-          reason: buildPriorityReason(opportunity, 'Média')
-        };
+        return { opportunity, score: Math.max(score, 0), label: 'Média', reason: buildPriorityReason(opportunity, 'Média') };
       }
 
-      return {
-        opportunity,
-        score: Math.max(score, 0),
-        label: 'Baixa',
-        reason: buildPriorityReason(opportunity, 'Baixa')
-      };
+      return { opportunity, score: Math.max(score, 0), label: 'Baixa', reason: buildPriorityReason(opportunity, 'Baixa') };
     })
     .sort((first, second) => second.score - first.score);
 }
 
 function buildPriorityReason(opportunity, label) {
-  const valueText = opportunity.value >= 2000 ? 'valor relevante' : 'valor moderado';
+  const valueText = Number(opportunity.value || 0) >= 2000 ? 'valor relevante' : 'valor moderado';
 
   if (opportunity.stage === 'aguardando-resposta') {
     return `${label} prioridade: cliente solicitou informações sobre o produto e ainda aguarda retorno, com ${valueText}.`;
@@ -973,16 +1139,12 @@ function buildWeeklyChart(opportunities) {
   const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
   return days.map((day, index) => {
+    const currentWeekStart = getStartOfCurrentWeek();
+    const dayDate = new Date(currentWeekStart);
+    dayDate.setDate(currentWeekStart.getDate() + index);
+
     const count = opportunities.filter((opportunity) => {
-      const created = new Date(opportunity.createdAt);
-      const base = new Date();
-      const currentWeekStart = new Date(base);
-      currentWeekStart.setDate(base.getDate() - ((base.getDay() + 6) % 7));
-      currentWeekStart.setHours(0, 0, 0, 0);
-
-      const dayDate = new Date(currentWeekStart);
-      dayDate.setDate(currentWeekStart.getDate() + index);
-
+      const created = new Date(opportunity.createdAt || opportunity.lastContact || new Date());
       return created.toDateString() === dayDate.toDateString();
     }).length;
 
@@ -1003,14 +1165,14 @@ function buildWeeklyReport(opportunities) {
 
 function summarizePeriod(opportunities, start, end) {
   const range = opportunities.filter((item) => {
-    const created = new Date(item.createdAt);
+    const created = new Date(item.createdAt || item.lastContact || new Date());
     return created >= start && created <= end;
   });
 
   const attended = range.filter((item) => item.stage !== 'novo-contato' && item.stage !== 'perdida').length;
   const sales = range.filter((item) => item.stage === 'venda-concluida').length;
   const lost = range.filter((item) => item.stage === 'perdida').length;
-  const conversion = range.length === 0 ? 0 : sales / Math.max(range.length, 1) * 100;
+  const conversion = range.length === 0 ? 0 : (sales / Math.max(range.length, 1)) * 100;
 
   const lossReasons = Object.entries(
     range.reduce((accumulator, item) => {
@@ -1039,7 +1201,7 @@ function generateMessage(opportunity, objective, context, variant) {
     `Bom dia ${opportunity.clientName}, agradeço pelo interesse em ${opportunity.product}.`
   ];
 
-  const templates = {
+  const messageTemplates = {
     'primeiro-contato': [
       `${base[variant % base.length]} Sou da loja e gostaria de apresentar ${opportunity.product}. Posso te ajudar a entender melhor o que funciona para o seu negócio e ajustar a solução ideal para você.`,
       `${base[(variant + 1) % base.length]} Vi seu interesse em ${opportunity.product} e quero entender suas necessidades para te recomendar a melhor opção com o melhor custo-benefício.`,
@@ -1051,8 +1213,8 @@ function generateMessage(opportunity, objective, context, variant) {
       `${base[(variant + 2) % base.length]} Gostaria de dar continuidade ao contato sobre ${opportunity.product}. Posso enviar mais detalhes ou ajustar a proposta conforme a sua necessidade.`
     ],
     'resposta-duvidas': [
-      `${base[variant % base.length]} Sobre ${opportunity.product}, posso te ajudar com as principais dúvidas. ${context || 'O objetivo é manter a conversa clara, objetiva e focada nas necessidades do cliente.'} Se preferir, posso te explicar melhor as opções e o valor estimado.` ,
-      `${base[(variant + 1) % base.length]} Claro! Em relação a ${opportunity.product}, a nossa proposta é atender ao seu contexto com praticidade e clareza. Segue o que você precisa saber para tomar a melhor decisão.` ,
+      `${base[variant % base.length]} Sobre ${opportunity.product}, posso te ajudar com as principais dúvidas. ${context || 'O objetivo é manter a conversa clara, objetiva e focada nas necessidades do cliente.'} Se preferir, posso te explicar melhor as opções e o valor estimado.`,
+      `${base[(variant + 1) % base.length]} Claro! Em relação a ${opportunity.product}, a nossa proposta é atender ao seu contexto com praticidade e clareza. Segue o que você precisa saber para tomar a melhor decisão.`,
       `${base[(variant + 2) % base.length]} Com certeza. O que você precisa saber sobre ${opportunity.product} pode ser respondido de forma simples e direta, para facilitar sua escolha.`
     ],
     'retomada-negociacao': [
@@ -1062,8 +1224,7 @@ function generateMessage(opportunity, objective, context, variant) {
     ]
   };
 
-  const variants = templates[objective] || templates.acompanhamento;
-  return variants[variant % variants.length];
+  return (messageTemplates[objective] || messageTemplates.acompanhamento)[variant % (messageTemplates[objective] || messageTemplates.acompanhamento).length];
 }
 
 function formatCurrency(value) {
@@ -1074,15 +1235,12 @@ function formatCurrency(value) {
 }
 
 function formatDate(value) {
-  if (!value) {
-    return '—';
-  }
-
+  if (!value) return '—';
   return new Date(value).toLocaleDateString('pt-BR');
 }
 
-function formatDateShort(date) {
-  return new Date(date).toLocaleDateString('pt-BR', {
+function formatDateShort(value) {
+  return new Date(value).toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: '2-digit'
   });
@@ -1092,11 +1250,16 @@ function stageLabel(stage) {
   return stageOptions.find((item) => item.value === stage)?.label || stage;
 }
 
+function getVarianceLabel(current, previous, suffix = '') {
+  const difference = current - previous;
+  const signal = difference >= 0 ? '+' : '-';
+  return `${signal}${Math.abs(difference).toFixed(1)}${suffix}`;
+}
+
 function daysBetween(startDate, endDate) {
   const start = new Date(startDate);
   const end = new Date(endDate);
-  const difference = end.getTime() - start.getTime();
-  return Math.max(Math.ceil(difference / (1000 * 60 * 60 * 24)), 0);
+  return Math.max(Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)), 0);
 }
 
 function getStartOfCurrentWeek() {
@@ -1109,10 +1272,71 @@ function getStartOfCurrentWeek() {
   return start;
 }
 
-function getVarianceLabel(current, previous, suffix = '') {
-  const difference = current - previous;
-  const signal = difference >= 0 ? '+' : '-';
-  return `${signal}${Math.abs(difference)}${suffix}`;
+function readStorage(key, fallback) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const value = window.localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function readAuthState() {
+  const stored = readStorage(STORAGE_KEYS.auth, { isAuthenticated: false, user: null, company: null, email: '' });
+  return stored && typeof stored === 'object' ? stored : { isAuthenticated: false, user: null, company: null, email: '' };
+}
+
+function persistAuthState(authState) {
+  writeStorage(STORAGE_KEYS.auth, authState || { isAuthenticated: false, user: null, company: null, email: '' });
+}
+
+function readOpportunitiesForCompany(companyId) {
+  if (!companyId) return [];
+  const opportunities = readStorage(STORAGE_KEYS.opportunities, {});
+  return opportunities[companyId] || [];
+}
+
+function upsertOpportunityForCompany(companyId, opportunity) {
+  const all = readStorage(STORAGE_KEYS.opportunities, {});
+  const list = Array.isArray(all[companyId]) ? all[companyId] : [];
+  const existingIndex = list.findIndex((item) => item.id === opportunity.id);
+
+  if (existingIndex >= 0) {
+    list[existingIndex] = { ...list[existingIndex], ...opportunity };
+  } else {
+    list.unshift({ ...opportunity, id: opportunity.id || `op-${Date.now()}` });
+  }
+
+  all[companyId] = list;
+  writeStorage(STORAGE_KEYS.opportunities, all);
+  return list;
+}
+
+function removeOpportunityForCompany(companyId, opportunityId) {
+  const all = readStorage(STORAGE_KEYS.opportunities, {});
+  const current = Array.isArray(all[companyId]) ? all[companyId] : [];
+  const next = current.filter((item) => item.id !== opportunityId);
+  all[companyId] = next;
+  writeStorage(STORAGE_KEYS.opportunities, all);
+  return next;
+}
+
+async function hashValue(value) {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const encoded = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  return value;
 }
 
 export default App;
+
+
